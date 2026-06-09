@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>reilebot</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div id="status">🔄 Загрузка...</div>
+    <button onclick="window.Telegram.WebApp.close()">Закрыть</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        
+        const user = tg.initDataUnsafe?.user;
+        
+        // ВСТАВЬ СВОЙ АДРЕС ИЗ NGROK (без /api в конце!)
+        const BASE_URL = 'https://hull-easiness-july.ngrok-free.dev';
+        
+        async function load() {
+            try {
+                document.getElementById('status').innerHTML = '🔄 Подключение...';
+                
+                // Проверяем API
+                const res = await fetch(`${BASE_URL}/health`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('status').innerHTML = 
+                        `✅ Приложение работает!<br><br>
+                         👤 ID: ${user?.id || 'не определен'}<br>
+                         📡 API: Доступен<br>
+                         🔗 ${BASE_URL}`;
+                } else {
+                    throw new Error('API не отвечает');
+                }
+            } catch(e) {
+                document.getElementById('status').innerHTML = 
+                    `❌ Ошибка: ${e.message}<br><br>
+                     Адрес: ${BASE_URL}<br>
+                     Проверь что API запущен`;
+            }
+        }
+        
+        load();
+        tg.MainButton.text = "Закрыть";
+        tg.MainButton.onClick(() => tg.close());
+        tg.MainButton.show();
+    </script>
+</body>
+</html>
