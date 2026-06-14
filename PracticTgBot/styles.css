@@ -1,0 +1,454 @@
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--tg-theme-bg-color, #ffffff);
+    color: var(--tg-theme-text-color, #000000);
+    padding: 0;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+
+
+.header {
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    border-radius: 16px;
+    animation: fadeIn 0.5s ease;
+}
+
+.header h2 {
+    margin-bottom: 8px;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 8px;
+}
+
+/* Цвета для бейджей ролей */
+.role-client {
+    background: #4CAF50;
+    color: white;
+}
+
+.role-executor {
+    background: #2196F3;
+    color: white;
+}
+
+.role-admin {
+    background: #9C27B0;
+    color: white;
+}
+
+.role-100ball {
+    background: #FF9800;
+    color: white;
+}
+
+
+
+.nav-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.nav-btn {
+    flex: 1;
+    background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+    border: none;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--tg-theme-text-color, #000);
+    transition: all 0.2s ease;
+}
+
+.nav-btn:active {
+    transform: scale(0.95);
+}
+
+.nav-btn.active {
+    background: var(--tg-theme-button-color, #2481cc);
+    color: white;
+}
+
+
+
+.card {
+    background: var(--tg-theme-secondary-bg-color, #f5f5f5);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+    animation: fadeIn 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card:active {
+    transform: scale(0.98);
+}
+
+.request-title {
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 8px;
+}
+
+.request-description {
+    font-size: 14px;
+    color: var(--tg-theme-hint-color, #666);
+    margin-bottom: 8px;
+}
+
+.request-status {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+/* Цвета для статусов */
+.status-new {
+    background: #4CAF50;
+    color: white;
+}
+
+.status-in_work {
+    background: #2196F3;
+    color: white;
+}
+
+.status-completed {
+    background: #9E9E9E;
+    color: white;
+}
+
+.status-extended {
+    background: #FF9800;
+    color: white;
+}
+
+.status-cancelled {
+    background: #f44336;
+    color: white;
+}
+
+
+
+.btn {
+    background: var(--tg-theme-button-color, #2481cc);
+    color: var(--tg-theme-button-text-color, #ffffff);
+    border: none;
+    padding: 14px 20px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 500;
+    width: 100%;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn:active {
+    transform: scale(0.97);
+    opacity: 0.8;
+}
+
+.btn-secondary {
+    background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+    color: var(--tg-theme-text-color, #000000);
+}
+
+.btn-danger {
+    background: #f44336;
+    color: white;
+}
+
+.btn-success {
+    background: #4CAF50;
+    color: white;
+}
+
+.inline-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.inline-buttons button {
+    flex: 1;
+    margin-bottom: 0;
+    padding: 10px 16px;
+    font-size: 14px;
+    background: var(--tg-theme-button-color, #2481cc);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.inline-buttons button:active {
+    transform: scale(0.97);
+}
+
+.status-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.status-buttons button {
+    flex: 1;
+    min-width: 80px;
+    padding: 10px;
+    font-size: 12px;
+    margin-bottom: 0;
+}
+
+
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+input,
+textarea,
+select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 12px;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #000);
+    font-size: 16px;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    outline: none;
+    border-color: #2481cc;
+    box-shadow: 0 0 0 2px rgba(36, 129, 204, 0.2);
+}
+
+textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.selected-files {
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.remove-file {
+    background: #f44336;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 10px;
+    margin-left: 8px;
+    transition: all 0.2s ease;
+}
+
+.remove-file:active {
+    transform: scale(0.9);
+}
+
+
+
+.filter-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.filter-bar select,
+.filter-bar input {
+    flex: 1;
+    min-width: 120px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: var(--tg-theme-bg-color, #fff);
+    color: var(--tg-theme-text-color, #000);
+    font-size: 14px;
+}
+
+.filter-bar button {
+    padding: 8px 12px;
+    white-space: nowrap;
+    width: auto;
+    margin-bottom: 0;
+}
+
+
+
+.load-more-btn {
+    background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+    color: var(--tg-theme-text-color, #000);
+    border: none;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    width: 100%;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.2s ease;
+}
+
+.load-more-btn:active {
+    transform: scale(0.98);
+}
+
+.refresh-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--tg-theme-button-color, #2481cc);
+    color: white;
+    border: none;
+    width: 50px;
+    height: 50px;
+    border-radius: 25px;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    transition: all 0.2s ease;
+}
+
+.refresh-btn:active {
+    transform: scale(0.9);
+}
+
+
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    animation: pulse 1.5s ease infinite;
+}
+
+.back-btn {
+    background: none;
+    border: none;
+    color: var(--tg-theme-button-color, #2481cc);
+    font-size: 16px;
+    padding: 10px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s ease;
+}
+
+.back-btn:active {
+    transform: scale(0.98);
+}
+
+
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.6;
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--tg-theme-button-color, #2481cc);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #1a6eb3;
+}

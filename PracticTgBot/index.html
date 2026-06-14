@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>reilebot - ПС Сервис</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container" id="app">
+        <div class="loading">🔄 Загрузка...</div>
+    </div>
+    <button class="refresh-btn" onclick="location.reload()">🔄</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        
+        const BASE_URL = window.location.origin;
+        const API_KEY = 'SuperSecretKeyForMyBot67';
+        
+        let currentUser = null;
+        let currentView = 'requests';
+        let statuses = ['new', 'in_work', 'completed', 'extended', 'cancelled'];
+        let selectedFiles = [];
+        let selectedReportFiles = [];
+        
+        let allRequests = [];
+        let displayedCount = 5;
+        let filterStatus = '';
+        let filterExecutorId = '';
+        let filterDate = '';
+        
+        let allLogs = [];
+        let logsDisplayed = 15;
+        let logsFilter = '';
+        
+
+        const statusNames = {
+            'new': '🆕 Новая',
+            'in_work': '🔧 В работе',
+            'completed': '✅ Выполнена',
+            'extended': '🔄 Продлена',
+            'cancelled': '❌ Отменена'
+        };
+        
+
+        const roleNames = {
+            'client': 'Клиент',
+            'executor': 'Исполнитель',
+            'admin': 'Администратор',
+            '100ball': '100бальница'
+        };
+        
+
+        const actionNames = {
+            'Создание заявки': '📝 Создание заявки',
+            'Изменение статуса': '🔄 Изменение статуса',
+            'Взятие заявки': '✅ Взятие заявки',
+            'Отчет': '📋 Отчёт',
+            'Запрос продления': '⏰ Запрос продления',
+            'Смена роли': '👤 Смена роли',
+            'Удаление заявки': '🗑 Удаление заявки'
+        };
+        
+        function escapeHtml(text) { if (!text) return ''; const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+        
+        function formatDate(dateString) { if (!dateString) return 'Не указана'; const date = new Date(dateString); return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+        
+        function showMsg(msg) { 
+            if (typeof msg === 'object') msg = JSON.stringify(msg);
+            alert(String(msg)); 
+        }
+        
+        function getFilteredRequests() {
+            let filtered = [...allRequests];
+            
+            if (filterStatus) {
+                filtered = filtered.filter(r => r.status === filterStatus);
+            }
+            
+            if (filterExecutorId) {
+                filtered = filtered.filter(r => r.executor_telegram_id && String(r.executor_telegram_id).includes(filterExecutorId));
+            }
+            
+            if (filterDate) {
+                const target = new Date(filterDate);
+                target.setHours(0, 0, 0, 0);
+                filtered = filtered.map(req => {
+                    const reqDate = new Date(req.created_at);
+                    reqDate.setHours(0, 0, 0, 0);
+                    const diffDays = Math.ceil(Math.abs(target - reqDate) / (1000 * 60 * 60 * 24));
+                    return { ...req, _diffDays: diffDays, _isExact: reqDate.getTime() === target.getTime() };
+                });
+                filtered.sort((a, b) => {
+                    if (a._isExact && !b._isExact) return -1;
+                    if (!a._isExact && b._isExact) return 1;
+                    return a._diffDays - b._diffDays;
+                });
+                filtered = filtered.map(({ _diffDays, _isExact, ...req }) => req);
+            } else {
+                const now = new Date();
+                now.setHours(0, 0, 0, 0);
+                filtered.sort((a, b) => {
+                    const dateA = new Date(a.created_at);
+                    const dateB = new Date(b.created_at);
+                    dateA.setHours(0, 0, 0, 0);
+                    dateB.setHours(0, 0, 0, 0);
+                    const diffA = Math.abs(now - dateA);
+                    const diffB = Math.abs(now - dateB);
+                    if (diffA === diffB) return new Date(b.created_at) - new Date(a.created_at);
+                    return diffA - diffB;
+                });
+            }
+            
+            return filtered;
+        }
+        
+        function loadMore() {
+            displayedCount += 5;
+            renderRequestsList();
+        }
+        
+        function applyFilters() {
+            filterStatus = document.getElementById('statusFilter')?.value || '';
+            filterExecutorId = document.getElementById('executorFilter')?.value || '';
+            filterDate = document.getElementById('dateFilter')?.value || '';
+            displayedCount = 5;
+            renderRequestsList();
+        }
+        
+        function clearFilters() {
+            if (document.getElementById('statusFilter')) document.getElementById('statusFilter').value = '';
+            if (document.getElementById('executorFilter')) document.getElementById('executorFilter').value = '';
+            if (document.getElementById('dateFilter')) document.getElementById('dateFilter').value = '';
+            filterStatus = '';
+            filterExecutorId = '';
+            filterDate = '';
+            displayedCount = 5;
+            renderRequestsList();
+        }
+        
+        async function renderRequestsList() {
+            const container = document.getElementById('requestsList');
+            if (!container) return;
+            
+            const filtered = getFilteredRequests();
+            const toShow = filtered.slice(0, displayedCount);
+            
+            if (toShow.length === 0) {
+                container.innerHTML = '<div class="loading">📭 Нет заявок</div>';
+                return;
+            }
+            
+            let html = '';
+            for (const req of toShow) {
+                const statusText = statusNames[req.status] || req.status;
+                const files = await getRequestFiles(req.id);
+                const fileIcon = files.length > 0 ? `📎 (${files.length})` : '';
+                html += `<div class="card"><div class="request-title">📝 Заявка #${req.id} ${fileIcon}</div><div class="request-description">${escapeHtml(req.description.substring(0, 100))}${req.description.length > 100 ? '...' : ''}</div><div class="request-status status-${req.status}">${statusText}</div><div style="font-size:12px;margin:8px 0">📅 ${formatDate(req.created_at)}</div><div class="inline-buttons"><button onclick="event.stopPropagation(); showRequestDetails(${req.id})">📋 Подробнее</button></div></div>`;
+            }
+            
+            if (displayedCount < filtered.length) {
+                html += `<button class="load-more-btn" onclick="loadMore()">📥 Показать ещё (${filtered.length - displayedCount} осталось)</button>`;
+            } else if (filtered.length > 0) {
+                html += `<div style="text-align:center; padding:10px; font-size:12px; color:#666;">✅ Все заявки загружены (${filtered.length})</div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        async function apiCall(endpoint, options = {}) {
+            const url = `${BASE_URL}/api${endpoint}`;
+            const headers = { 'Authorization': `Bearer ${API_KEY}`, ...options.headers };
+            const response = await fetch(url, { ...options, headers });
+            let data;
+            try { data = await response.json(); } catch (e) { data = { detail: await response.text() }; }
+            if (!response.ok) throw new Error(data.detail || `Ошибка ${response.status}`);
+            return data;
+        }
+        
+        async function loadUser() {
+            try {
+                const userData = tg.initDataUnsafe?.user;
+                if (!userData || !userData.id) throw new Error('Нет данных пользователя');
+                currentUser = await apiCall(`/users/${userData.id}`);
+                if (currentUser.telegram_id) currentUser.telegram_id = Number(currentUser.telegram_id);
+                console.log('Пользователь:', currentUser);
+            } catch (error) {
+                document.getElementById('app').innerHTML = `<div class="loading"><p>❌ ${error.message}</p><button class="btn" onclick="location.reload()">🔄 Обновить</button></div>`;
+            }
+        }
+        
+        async function loadAllUsers() { try { return await apiCall('/users'); } catch (e) { return []; } }
+        
+        async function loadRequests() {
+            try {
+                if (currentUser.role === 'client') {
+                    return await apiCall(`/requests?client_telegram_id=${currentUser.telegram_id}`);
+                }
+                if (currentUser.role === 'executor') {
+                    const all = await apiCall('/requests');
+                    const my = await apiCall(`/requests?executor_telegram_id=${currentUser.telegram_id}`);
+                    return { all, my, new: all.filter(r => r.status === 'new') };
+                }
+                return await apiCall('/requests');
+            } catch (e) { return []; }
+        }
+        
+        async function createRequest(description) {
+            const clientId = Number(currentUser.telegram_id);
+            const url = `${BASE_URL}/api/requests?client_telegram_id=${clientId}&description=${encodeURIComponent(description)}`;
+            const response = await fetch(url, { method: 'POST', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+            if (!response.ok) { const error = await response.json(); throw new Error(JSON.stringify(error.detail || error)); }
+            return await response.json();
+        }
+        
+        async function uploadFile(requestId, file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch(`${BASE_URL}/api/requests/${requestId}/media`, {
+                method: 'POST', headers: { 'Authorization': `Bearer ${API_KEY}` }, body: formData
+            });
+            if (!response.ok) throw new Error(`Ошибка ${response.status}`);
+            return await response.json();
+        }
+        
+        async function getRequestFiles(requestId) {
+            const response = await fetch(`${BASE_URL}/api/requests/${requestId}/media`, {
+                headers: { 'Authorization': `Bearer ${API_KEY}` }
+            });
+            if (!response.ok) return [];
+            return await response.json();
+        }
+        
+        async function takeRequest(requestId) { 
+            const url = `${BASE_URL}/api/requests/assign?request_id=${requestId}&executor_telegram_id=${currentUser.telegram_id}`;
+            const response = await fetch(url, { method: 'PUT', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+            if (!response.ok) { const error = await response.json(); throw new Error(error.detail || `Ошибка ${response.status}`); }
+            return await response.json();
+        }
+        
+        async function requestExtension(requestId, days) { 
+            return await apiCall('/extensions', { method: 'POST', body: JSON.stringify({ request_id: requestId, executor_telegram_id: currentUser.telegram_id, days: days }) }); 
+        }
+        
+        async function createReport(requestId, textReport) { 
+            return await apiCall('/reports', { method: 'POST', body: JSON.stringify({ request_id: requestId, executor_telegram_id: currentUser.telegram_id, text_report: textReport }) }); 
+        }
+        
+        async function cancelRequestById(requestId) { 
+            const url = `${BASE_URL}/api/requests/${requestId}/status?status=cancelled`;
+            const response = await fetch(url, { method: 'PUT', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+            if (!response.ok) { const error = await response.json(); throw new Error(error.detail || `Ошибка ${response.status}`); }
+            return await response.json();
+        }
+        
+        async function adminChangeStatus(requestId, newStatus) { 
+            return await fetch(`${BASE_URL}/api/requests/${requestId}/status?status=${newStatus}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${API_KEY}` } }); 
+        }
+        
+        async function adminDeleteRequestApi(requestId) { 
+            return await fetch(`${BASE_URL}/api/requests/${requestId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${API_KEY}` } }); 
+        }
+        
+        async function adminChangeRole(telegramId, newRole) { 
+            return await fetch(`${BASE_URL}/api/users/${telegramId}/role?role=${newRole}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${API_KEY}` } }); 
+        }
+        
+        async function adminAssignExecutor(requestId, executorTelegramId) {
+            const url = `${BASE_URL}/api/requests/assign?request_id=${requestId}&executor_telegram_id=${executorTelegramId}`;
+            const response = await fetch(url, { method: 'PUT', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+            if (!response.ok) { const error = await response.json(); throw new Error(error.detail || `Ошибка ${response.status}`); }
+            return await response.json();
+        }
+        
+        async function renderApp() {
+            if (!currentUser) return;
+            const roleDisplay = roleNames[currentUser.role] || currentUser.role;
+            const roleClass = `role-${currentUser.role === '100ball' ? '100ball' : currentUser.role}`;
+            let navButtons = '';
+            if (currentUser.role === 'client') navButtons = `<button class="nav-btn ${currentView === 'requests' ? 'active' : ''}" onclick="setView('requests')">📋 Мои заявки</button><button class="nav-btn ${currentView === 'create' ? 'active' : ''}" onclick="setView('create')">➕ Создать заявку</button>`;
+            else if (currentUser.role === 'executor') navButtons = `<button class="nav-btn ${currentView === 'requests' ? 'active' : ''}" onclick="setView('requests')">📋 Новые заявки</button><button class="nav-btn ${currentView === 'my_requests' ? 'active' : ''}" onclick="setView('my_requests')">✅ Мои заявки</button>`;
+            else navButtons = `<button class="nav-btn ${currentView === 'requests' ? 'active' : ''}" onclick="setView('requests')">📊 Все заявки</button><button class="nav-btn ${currentView === 'users' ? 'active' : ''}" onclick="setView('users')">👥 Пользователи</button><button class="nav-btn ${currentView === 'logs' ? 'active' : ''}" onclick="setView('logs')">Логи</button>`;
+            
+            document.getElementById('app').innerHTML = `<div class="header"><h2>Здарова ${escapeHtml(currentUser.full_name || 'Пользователь')}</h2><div class="role-badge ${roleClass}">${roleDisplay}</div></div><div class="nav-bar">${navButtons}</div><div id="view-content"></div>`;
+            if (currentView === 'requests') await renderRequestsView();
+            else if (currentView === 'create') renderCreateView();
+            else if (currentView === 'my_requests') await renderMyRequestsView();
+            else if (currentView === 'users') await renderUsersView();
+            else if (currentView === 'logs') await renderLogsView();
+        }
+        
+        async function renderRequestsView() {
+            const container = document.getElementById('view-content');
+            
+            if (currentUser.role === 'admin' || currentUser.role === '100ball') {
+                container.innerHTML = `
+                    <div class="filter-bar">
+                        <select id="statusFilter" onchange="applyFilters()">
+                            <option value="">Все статусы</option>
+                            <option value="new">🆕 Новые</option>
+                            <option value="in_work">🔧 В работе</option>
+                            <option value="completed">✅ Выполненные</option>
+                            <option value="extended">🔄 Продлённые</option>
+                            <option value="cancelled">❌ Отменённые</option>
+                        </select>
+                        <input type="text" id="executorFilter" placeholder="ID исполнителя" oninput="applyFilters()">
+                        <input type="date" id="dateFilter" placeholder="Дата" onchange="applyFilters()">
+                        <button class="btn-secondary" onclick="clearFilters()">✖ Сбросить</button>
+                    </div>
+                    <div id="requestsList"></div>
+                `;
+            } else {
+                container.innerHTML = `<div id="requestsList"></div>`;
+            }
+            
+            await loadAndRenderRequests();
+        }
+        
+        async function loadAndRenderRequests() {
+            const container = document.getElementById('requestsList');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Загрузка заявок...</div>';
+            
+            if (currentUser.role === 'executor') { 
+                const data = await loadRequests(); 
+                allRequests = data.new || []; 
+            } else if (currentUser.role === 'client') {
+                allRequests = await loadRequests();
+            } else {
+                allRequests = await apiCall('/requests');
+            }
+            
+            displayedCount = 5;
+            await renderRequestsList();
+        }
+        
+        async function renderMyRequestsView() {
+            const container = document.getElementById('view-content');
+            container.innerHTML = '<div class="loading">Загрузка заявок...</div>';
+            const data = await loadRequests();
+            const requests = data.my || [];
+            if (requests.length === 0) { container.innerHTML = '<div class="loading">📭 Нет назначенных заявок</div>'; return; }
+            let html = '';
+            for (const req of requests) {
+                html += `<div class="card"><div class="request-title">📝 Заявка #${req.id}</div><div class="request-description">${escapeHtml(req.description.substring(0, 100))}...</div><div class="request-status status-${req.status}">${statusNames[req.status] || req.status}</div><div style="margin:8px 0">👤 Клиент: ${escapeHtml(req.client_name || 'Неизвестен')}</div><div class="inline-buttons"><button onclick="event.stopPropagation(); showRequestDetails(${req.id})">📋 Подробнее</button></div></div>`;
+            }
+            container.innerHTML = html;
+        }
+        
+        function renderCreateView() {
+            selectedFiles = [];
+            document.getElementById('view-content').innerHTML = `
+                <div class="card">
+                    <div class="form-group"><label>📝 Опишите проблему с пожарной сигнализацией:</label><textarea id="desc" rows="3" placeholder="Опишите проблему..."></textarea></div>
+                    <div class="form-group">
+                        <label>📎 Файлы (до 5)</label>
+                        <input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none">
+                        <button class="btn-secondary" onclick="document.getElementById('fileInput').click()" style="margin-bottom:10px">📁 Выбрать файлы</button>
+                        <div id="selected-files-list" class="selected-files">Файлы не выбраны</div>
+                    </div>
+                    <button class="btn" id="submitBtn" onclick="submitCreate()">✅ Отправить заявку</button>
+                </div>
+            `;
+            document.getElementById('fileInput').addEventListener('change', function(e) {
+                const newFiles = Array.from(e.target.files);
+                if (selectedFiles.length + newFiles.length > 5) { showMsg('Максимум 5 файлов'); return; }
+                selectedFiles = [...selectedFiles, ...newFiles];
+                const container = document.getElementById('selected-files-list');
+                if (selectedFiles.length === 0) { container.innerHTML = 'Файлы не выбраны'; return; }
+                let html = '';
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    html += `<div>📎 ${escapeHtml(selectedFiles[i].name)} (${Math.round(selectedFiles[i].size/1024)} КБ) <button class="remove-file" onclick="removeFile(${i})">✖</button></div>`;
+                }
+                container.innerHTML = html;
+                e.target.value = '';
+            });
+        }
+        
+        window.removeFile = function(index) { selectedFiles.splice(index, 1); renderCreateView(); };
+        
+        async function submitCreate() {
+            const desc = document.getElementById('desc').value;
+            if (!desc.trim()) { showMsg('Введите описание проблемы'); return; }
+            const btn = document.getElementById('submitBtn');
+            if (btn) { btn.textContent = '⏳ Отправка...'; btn.disabled = true; }
+            try {
+                const req = await createRequest(desc);
+                if (selectedFiles.length > 0) {
+                    for (let f of selectedFiles) await uploadFile(req.id, f);
+                    showMsg(`✅ Заявка #${req.id} создана! Прикреплено файлов: ${selectedFiles.length}`);
+                } else { showMsg(`✅ Заявка #${req.id} успешно создана!`); }
+                selectedFiles = [];
+                currentView = 'requests';
+                await renderApp();
+            } catch (err) { 
+                showMsg(`❌ Ошибка при создании: ${err.message}`); 
+                if (btn) { btn.textContent = '✅ Отправить заявку'; btn.disabled = false; }
+            }
+        }
+        
+        async function renderUsersView() {
+            const container = document.getElementById('view-content');
+            container.innerHTML = `
+                <div class="filter-bar" style="margin-bottom:16px">
+                    <select id="roleFilter" onchange="filterUsers()" style="flex:1; padding:8px; border-radius:8px; border:1px solid #ccc">
+                        <option value="all">👥 Все пользователи</option>
+                        <option value="client">👤 Клиенты</option>
+                        <option value="executor">🔧 Исполнители</option>
+                        <option value="admin">👑 Администраторы</option>
+                    </select>
+                    <button class="btn-secondary" onclick="clearUserFilter()" style="width:auto; padding:8px 12px">✖ Сбросить</button>
+                </div>
+                <div id="usersList"></div>
+            `;
+            await loadAndRenderUsers();
+        }
+        
+        async function loadAndRenderUsers() {
+            const container = document.getElementById('usersList');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Загрузка пользователей...</div>';
+            
+            try {
+                let users = await loadAllUsers();
+                
+                const roleFilter = document.getElementById('roleFilter')?.value || 'all';
+                if (roleFilter !== 'all') {
+                    users = users.filter(u => u.role === roleFilter);
+                }
+                
+                if (users.length === 0) {
+                    container.innerHTML = '<div class="loading">📭 Пользователи не найдены</div>';
+                    return;
+                }
+                
+                let html = '';
+                for (const user of users) {
+                    const roleDisplay = roleNames[user.role] || user.role;
+                    const roleIcon = user.role === '100ball' ? '🎓' : (user.role === 'admin' ? '👑' : (user.role === 'executor' ? '🔧' : '👤'));
+                    html += `<div class="card">
+                        <div><b>${roleIcon} ${escapeHtml(user.full_name || user.telegram_id)}</b></div>
+                        <div style="font-size:12px">🆔 ID: ${user.telegram_id}</div>
+                        <div style="font-size:12px">🎭 Роль: ${roleDisplay}</div>
+                        <div class="inline-buttons">
+                            <button onclick="event.stopPropagation(); showChangeRoleForm(${user.telegram_id}, '${user.role}')">✏️ Изменить роль</button>
+                        </div>
+                    </div>`;
+                }
+                container.innerHTML = html;
+            } catch (error) {
+                container.innerHTML = `<div class="loading">❌ ${error.message}</div>`;
+            }
+        }
+        
+        window.filterUsers = function() { loadAndRenderUsers(); };
+        window.clearUserFilter = function() {
+            const filterSelect = document.getElementById('roleFilter');
+            if (filterSelect) filterSelect.value = 'all';
+            loadAndRenderUsers();
+        };
+        
+        async function renderLogsView() {
+            const container = document.getElementById('view-content');
+            container.innerHTML = `
+                <div class="filter-bar" style="margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+                    <select id="logActionFilter" onchange="applyLogsFilter()" style="flex:1; min-width:150px; padding:8px; border-radius:8px; border:1px solid #ccc">
+                        <option value="">📋 Все действия</option>
+                        <option value="Создание заявки">📝 Создание заявки</option>
+                        <option value="Изменение статуса">🔄 Изменение статуса</option>
+                        <option value="Взятие заявки">✅ Взятие заявки</option>
+                        <option value="Отчет">📋 Отчёт</option>
+                        <option value="Запрос продления">⏰ Запрос продления</option>
+                        <option value="Смена роли">👤 Смена роли</option>
+                        <option value="Удаление заявки">🗑 Удаление заявки</option>
+                    </select>
+                    <button class="btn-secondary" onclick="resetLogsFilter()" style="width:auto; padding:8px 12px">✖ Сбросить</button>
+                    <button class="btn-secondary" onclick="loadMoreLogs()" style="width:auto; padding:8px 12px">📥 Загрузить ещё (15)</button>
+                </div>
+                <div id="logsList"></div>
+            `;
+            
+            await loadAndRenderLogs();
+        }
+        
+        async function loadAllLogs() {
+            try {
+                allLogs = await apiCall('/logs');
+                logsDisplayed = 15;
+            } catch (error) {
+                console.error('Ошибка загрузки журнала:', error);
+                allLogs = [];
+            }
+        }
+        
+        function getFilteredLogs() {
+            if (!logsFilter) return allLogs;
+            return allLogs.filter(log => log.action === logsFilter);
+        }
+        
+        async function renderLogsList() {
+            const container = document.getElementById('logsList');
+            if (!container) return;
+            
+            const filtered = getFilteredLogs();
+            const toShow = filtered.slice(0, logsDisplayed);
+            
+            if (toShow.length === 0) {
+                container.innerHTML = '<div class="loading">📭 Записи не найдены</div>';
+                return;
+            }
+            
+            let html = '';
+            for (const log of toShow) {
+                const actionIcon = actionNames[log.action] ? actionNames[log.action].split(' ')[0] : '📌';
+                const actionText = actionNames[log.action] || log.action;
+                
+                html += `<div class="card">
+                    <div><b>${actionIcon} ${escapeHtml(log.full_name || log.user_id)}</b></div>
+                    <div style="font-size:13px; margin-top:5px">${actionText}</div>
+                    <div style="font-size:10px; color:#666; margin-top:3px">📅 ${formatDate(log.created_at)}</div>
+                    ${log.details ? `<div style="font-size:11px; margin-top:5px; color:var(--tg-theme-hint-color, #666)">📝 ${escapeHtml(log.details)}</div>` : ''}
+                </div>`;
+            }
+            
+            if (logsDisplayed < filtered.length) {
+                html += `<button class="load-more-btn" onclick="loadMoreLogs()">📥 Загрузить ещё (${filtered.length - logsDisplayed} осталось)</button>`;
+            } else if (filtered.length > 0) {
+                html += `<div style="text-align:center; padding:10px; font-size:12px; color:#666;">✅ Все записи загружены (${filtered.length})</div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        async function loadAndRenderLogs() {
+            const container = document.getElementById('logsList');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Загрузка журнала...</div>';
+            await loadAllLogs();
+            await renderLogsList();
+        }
+        
+        function applyLogsFilter() {
+            logsFilter = document.getElementById('logActionFilter')?.value || '';
+            logsDisplayed = 15;
+            renderLogsList();
+        }
+        
+        function resetLogsFilter() {
+            const filterSelect = document.getElementById('logActionFilter');
+            if (filterSelect) filterSelect.value = '';
+            logsFilter = '';
+            logsDisplayed = 15;
+            renderLogsList();
+        }
+        
+        function loadMoreLogs() {
+            logsDisplayed += 15;
+            renderLogsList();
+        }
+        
+        window.showRequestFiles = async function(requestId) {
+            try {
+                const files = await getRequestFiles(requestId);
+                if (!files.length) { showMsg('Нет прикреплённых файлов'); return; }
+                let html = `<button class="back-btn" onclick="showRequestDetails(${requestId})">← Назад к заявке</button><div class="card"><h3>📎 Прикреплённые файлы</h3>`;
+                for (const file of files) {
+                    const url = `${BASE_URL}/api/requests/${requestId}/media/${file.id}`;
+                    if (file.media_type === 'photo') html += `<img src="${url}" style="max-width:100%; border-radius:12px; margin:5px 0">`;
+                    else html += `<video src="${url}" controls style="max-width:100%; border-radius:12px; margin:5px 0"></video>`;
+                }
+                html += `<button class="btn" onclick="showRequestDetails(${requestId})">🔙 Вернуться к заявке</button></div>`;
+                document.getElementById('view-content').innerHTML = html;
+            } catch (err) { showMsg(`❌ Ошибка: ${err.message}`); }
+        };
+        
+        window.showRequestDetails = async function(requestId) {
+            try {
+                const req = await apiCall(`/requests/${requestId}`);
+                const files = await getRequestFiles(requestId);
+                const statusText = statusNames[req.status] || req.status;
+                let actions = '';
+                if (currentUser.role === 'executor' && req.status === 'new') actions = `<button class="btn btn-success" onclick="takeAction(${requestId})">✅ Взять в работу</button>`;
+                else if (currentUser.role === 'executor' && req.status === 'in_work') actions = `<button class="btn" onclick="showReportForm(${requestId})">📝 Отчитаться о работе</button><button class="btn btn-secondary" onclick="showExtensionForm(${requestId})">🔄 Запросить продление</button>`;
+                else if (currentUser.role === 'client' && (req.status === 'new' || req.status === 'in_work')) actions = `<button class="btn btn-danger" onclick="cancelAction(${requestId})">❌ Отменить заявку</button>`;
+                else if (currentUser.role === 'admin' || currentUser.role === '100ball') {
+                    let btns = '';
+                    const statusOrder = ['new', 'in_work', 'completed', 'extended', 'cancelled'];
+                    for (const s of statusOrder) {
+                        if (s !== req.status) {
+                            btns += `<button class="btn-secondary" onclick="adminStatus(${requestId}, '${s}')">${statusNames[s]}</button>`;
+                        }
+                    }
+                    actions = `<div><label>⚙️ Управление статусом:</label><div class="status-buttons">${btns}</div></div><button class="btn btn-secondary" onclick="showAssignExecutorForm(${requestId})">👤 Назначить исполнителя</button><button class="btn btn-danger" onclick="adminDelete(${requestId})">🗑 Удалить заявку</button>`;
+                }
+                const fileBtn = files.length ? `<button class="btn btn-secondary" onclick="showRequestFiles(${requestId})">📎 Прикреплённые файлы (${files.length})</button>` : '';
+                document.getElementById('view-content').innerHTML = `<button class="back-btn" onclick="setView('requests')">← Назад к списку</button><div class="card"><div class="request-title">📝 Заявка #${req.id}</div><div class="request-description">${escapeHtml(req.description)}</div><div class="request-status status-${req.status}">${statusText}</div><div style="margin-top:12px">👤 Клиент: ${escapeHtml(req.client_name || 'Не указан')}<br>👤 Исполнитель: ${escapeHtml(req.executor_name || 'Не назначен')}<br>📅 Дата создания: ${formatDate(req.created_at)}</div></div>${actions}${fileBtn}`;
+            } catch (err) { showMsg(`❌ Ошибка: ${err.message}`); }
+        };
+        
+        window.takeAction = async function(id) { 
+            try {
+                await takeRequest(id);
+                showMsg(`✅ Заявка #${id} взята в работу!`);
+                await loadAndRenderRequests();
+                setView('requests');
+            } catch(e) { 
+                showMsg(`❌ Ошибка: ${e.message}`); 
+            } 
+        };
+        
+        window.showReportForm = function(requestId) {
+            selectedReportFiles = [];
+            document.getElementById('view-content').innerHTML = `
+                <button class="back-btn" onclick="showRequestDetails(${requestId})">← Назад к заявке</button>
+                <div class="card">
+                    <h3>📝 Отчёт о выполненной работе</h3>
+                    <textarea id="report_text" rows="4" placeholder="Опишите, что было сделано..."></textarea>
+                    <div class="form-group">
+                        <label>📎 Прикрепить фото/видео к отчёту</label>
+                        <input type="file" id="reportFiles" multiple accept="image/*,video/*">
+                        <div id="report-files-list" class="selected-files" style="margin-top:8px"></div>
+                    </div>
+                    <button class="btn" style="margin-top:10px" onclick="sendReport(${requestId})">✅ Отправить отчёт</button>
+                </div>
+            `;
+            document.getElementById('reportFiles').addEventListener('change', function(e) {
+                selectedReportFiles = Array.from(e.target.files);
+                const container = document.getElementById('report-files-list');
+                container.innerHTML = '';
+                for (const f of selectedReportFiles) {
+                    container.innerHTML += `<div>📎 ${f.name} (${Math.round(f.size/1024)} КБ)</div>`;
+                }
+            });
+        };
+        
+        window.sendReport = async function(id) {
+        const text = document.getElementById('report_text')?.value;
+        if (!text?.trim()) {
+            showMsg('Введите текст отчёта');
+            return;
+        }
+        try {
+
+            const url = `${BASE_URL}/api/reports?request_id=${id}&executor_telegram_id=${currentUser.telegram_id}&text_report=${encodeURIComponent(text)}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${API_KEY}`
+
+                }
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || `Ошибка ${response.status}`);
+            }
+            
+
+            for (const file of selectedReportFiles) {
+                await uploadFile(id, file);
+            }
+            
+            showMsg(`✅ Отчёт отправлен!${selectedReportFiles.length ? ` Прикреплено файлов: ${selectedReportFiles.length}` : ''}`);
+            setView('requests');
+        } catch(e) { 
+            console.error('Ошибка отправки отчёта:', e);
+            showMsg(`❌ Ошибка: ${e.message}`); 
+        }
+    };
+        
+        window.showExtensionForm = function(requestId) {
+            document.getElementById('view-content').innerHTML = `
+                <button class="back-btn" onclick="showRequestDetails(${requestId})">← Назад к заявке</button>
+                <div class="card">
+                    <h3>🔄 Запрос продления срока</h3>
+                    <label>На сколько дней продлить?</label>
+                    <input type="number" id="days" placeholder="Количество дней" style="margin-bottom:10px">
+                    <button class="btn" onclick="sendExtension(${requestId})">🔄 Отправить запрос</button>
+                </div>
+            `;
+        };
+        
+        window.sendExtension = async function(id) { 
+    const days = parseInt(document.getElementById('days')?.value); 
+    if (!days || days<1) { 
+        showMsg('Введите количество дней'); 
+        return; 
+    } 
+    try { 
+
+        const url = `${BASE_URL}/api/extensions?request_id=${id}&executor_telegram_id=${currentUser.telegram_id}&days=${days}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${API_KEY}`
+
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || `Ошибка ${response.status}`);
+        }
+        
+        showMsg(`✅ Запрос на продление на ${days} дн. отправлен клиенту!`);
+        setView('requests'); 
+    } catch(e) { 
+        console.error('Ошибка продления:', e);
+        showMsg(`❌ Ошибка: ${e.message}`); 
+    } 
+};
+        
+        window.cancelAction = async function(id) { 
+            if (confirm('Вы уверены, что хотите отменить эту заявку?')) { 
+                try { 
+                    await cancelRequestById(id); 
+                    showMsg(`✅ Заявка #${id} отменена!`); 
+                    await loadAndRenderRequests();
+                    setView('requests'); 
+                } catch(e) { 
+                    showMsg(`❌ Ошибка отмены: ${e.message}`); 
+                } 
+            } 
+        };
+        
+        window.showAssignExecutorForm = async function(requestId) {
+            const users = await loadAllUsers();
+            const executors = users.filter(u => u.role === 'executor');
+            if (!executors.length) { showMsg('Нет доступных исполнителей'); return; }
+            let html = `<button class="back-btn" onclick="showRequestDetails(${requestId})">← Назад к заявке</button><div class="card"><h3>👤 Выберите исполнителя</h3>`;
+            for (const ex of executors) {
+                html += `<button class="btn" onclick="assignExecutor(${requestId}, ${ex.telegram_id})">📌 ${ex.full_name || ex.telegram_id}</button>`;
+            }
+            html += `</div>`;
+            document.getElementById('view-content').innerHTML = html;
+        };
+        
+        window.assignExecutor = async function(requestId, executorTelegramId) {
+            try {
+                await adminAssignExecutor(requestId, executorTelegramId);
+                showMsg(`✅ Исполнитель назначен!`);
+                showRequestDetails(requestId);
+            } catch(e) { showMsg(`❌ ${e.message}`); }
+        };
+        
+        window.showChangeRoleForm = function(telegramId, currentRole) {
+            const roles = ['client', 'executor', 'admin'];
+            let btns = '';
+            for (const r of roles) if (r !== currentRole) btns += `<button class="btn" onclick="changeRole(${telegramId}, '${r}')">📌 ${roleNames[r]}</button>`;
+            document.getElementById('view-content').innerHTML = `<button class="back-btn" onclick="renderUsersView()">← Назад к списку</button><div class="card"><h3>👤 Изменение роли</h3><p>🆔 ID: ${telegramId}<br>🎭 Текущая роль: ${roleNames[currentRole]}</p>${btns}</div>`;
+        };
+        
+        window.changeRole = async function(telegramId, newRole) {
+            if (newRole === '100ball') {
+                showMsg('❌ Роль "100бальница" может быть назначена только через SQL');
+                return;
+            }
+            try { 
+                const res = await adminChangeRole(telegramId, newRole); 
+                if (!res.ok) throw new Error(`Ошибка ${res.status}`); 
+                showMsg('✅ Роль успешно изменена!');
+                await loadUser(); 
+                await renderUsersView(); 
+            } catch(e) { showMsg(`❌ ${e.message}`); }
+        };
+        
+        window.adminStatus = async function(id, status) {
+            try { 
+                const res = await adminChangeStatus(id, status); 
+                if (!res.ok) throw new Error(`Ошибка ${res.status}`); 
+                showMsg(`✅ Статус изменён на "${statusNames[status]}"`);
+                await loadAndRenderRequests();
+                setView('requests');
+            } catch(e) { showMsg(`❌ ${e.message}`); }
+        };
+        
+        window.adminDelete = async function(id) {
+            if (confirm('Вы уверены, что хотите удалить эту заявку?')) { 
+                try { 
+                    const res = await adminDeleteRequestApi(id); 
+                    if (!res.ok) throw new Error(`Ошибка ${res.status}`); 
+                    showMsg('✅ Заявка успешно удалена!');
+                    await loadAndRenderRequests();
+                    setView('requests');
+                } catch(e) { showMsg(`❌ ${e.message}`); } 
+            }
+        };
+        
+        window.applyLogsFilter = applyLogsFilter;
+        window.resetLogsFilter = resetLogsFilter;
+        window.loadMoreLogs = loadMoreLogs;
+        
+        window.setView = async function(view) { 
+            currentView = view; 
+            await renderApp(); 
+        };
+        
+        loadUser().then(() => renderApp());
+        tg.MainButton.text = "Закрыть";
+        tg.MainButton.onClick(() => tg.close());
+        tg.MainButton.show();
+    </script>
+</body>
+</html>
